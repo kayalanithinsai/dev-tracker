@@ -249,6 +249,15 @@ class DatabaseService {
         await this.saveToIndexedDB();
     }
 
+    async deleteProblem(problemId: string): Promise<void> {
+        if (!this.db) throw new Error('Database not initialized');
+
+        // Delete problem
+        this.db.run('DELETE FROM problems WHERE id = ?', [problemId]);
+
+        await this.saveToIndexedDB();
+    }
+
     // === IndexedDB Persistence ===
 
     private async saveToIndexedDB(): Promise<void> {

@@ -27,34 +27,26 @@ const App: React.FC = () => {
         const loadedSubjects = await db.getAllSubjects();
 
         if (loadedSubjects.length === 0) {
-          // Create Default DSA Subject
-          const dsaProblems: Problem[] = Array.from({ length: DEFAULT_DSA_PROBLEMS }, (_, i) => ({
-            id: uuidv4(),
-            title: `DSA Problem ${i + 1}`,
-            isSolved: false,
-            topic: 'General'
-          }));
-
           const defaultSubjects: Subject[] = [
             {
               id: uuidv4(),
               title: 'DSA',
               description: 'Data Structures and Algorithms Interview Prep',
-              problems: dsaProblems,
+              problems: [],
               createdAt: Date.now()
             },
             {
               id: uuidv4(),
               title: 'System Design (HLD)',
               description: 'High Level Design Concepts',
-              problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `HLD Topic ${i + 1}`, isSolved: false })),
+              problems: [],
               createdAt: Date.now()
             },
             {
               id: uuidv4(),
               title: 'LLD',
               description: 'Low Level Design & OOP',
-              problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `LLD Pattern ${i + 1}`, isSolved: false })),
+              problems: [],
               createdAt: Date.now()
             }
           ];
@@ -208,23 +200,53 @@ const App: React.FC = () => {
     const title = prompt("Enter Subject Name (e.g., 'React Internals'):");
     if (!title) return;
 
-    const countStr = prompt("How many problems to track initially?", "50");
-    const count = parseInt(countStr || "50", 10) || 50;
-
     const newSubject: Subject = {
       id: uuidv4(),
       title,
       description: 'New subject tracker',
-      problems: Array.from({ length: count }, (_, i) => ({
-        id: uuidv4(),
-        title: `${title} Item ${i + 1}`,
-        isSolved: false
-      })),
+      problems: [],
       createdAt: Date.now()
     };
 
     await db.createSubject(newSubject);
     setSubjects(prev => [...prev, newSubject]);
+  };
+
+  const addNewProblem = async (subjectId: string) => {
+    const title = prompt("Enter task name:");
+    if (!title || !title.trim()) return;
+
+    const newProblem: Problem = {
+      id: uuidv4(),
+      title: title.trim(),
+      isSolved: false
+    };
+
+    await db.createProblem(subjectId, newProblem);
+
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: [...sub.problems, newProblem]
+      };
+    }));
+  };
+
+  const deleteProblem = async (subjectId: string, problemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!confirm('Are you sure you want to delete this task?')) return;
+
+    await db.deleteProblem(problemId);
+
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.filter(p => p.id !== problemId)
+      };
+    }));
   };
 
   const updateProblemTitle = async (subjectId: string, problemId: string, newTitle: string) => {
@@ -472,13 +494,23 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={() => setIsAiOpen(true)}
-                className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform hover:scale-105"
-              >
-                <BrainCircuit className="w-5 h-5" />
-                <span className="font-semibold">Ask AI Tutor</span>
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => addNewProblem(activeSubject.id)}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-500/20 transition-all transform hover:scale-105"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span className="font-semibold">Add Task</span>
+                </button>
+
+                <button
+                  onClick={() => setIsAiOpen(true)}
+                  className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform hover:scale-105"
+                >
+                  <BrainCircuit className="w-5 h-5" />
+                  <span className="font-semibold">Ask AI Tutor</span>
+                </button>
+              </div>
             </div>
 
             {/* Grid Visualization */}
@@ -575,6 +607,14 @@ const App: React.FC = () => {
                         title="Add/edit notes"
                       >
                         <FileText className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={(e) => deleteProblem(activeSubject.id, problem.id, e)}
+                        className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                        title="Delete task"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
 
                       <button
