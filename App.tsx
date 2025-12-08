@@ -1,0 +1,330 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Subject, Problem } from './types';
+import { v4 as uuidv4 } from 'uuid';
+import ProblemGrid from './components/ProblemGrid';
+import AIAssistant from './components/AIAssistant';
+// Use react-markdown only in AIAssistant to keep App clean, import icons
+import { Trash2, Plus, ArrowLeft, BrainCircuit, Github, CheckCircle2, Circle } from 'lucide-react';
+
+const LOCAL_STORAGE_KEY = 'devtracker_data_v1';
+
+const DEFAULT_DSA_PROBLEMS = 250;
+
+const App: React.FC = () => {
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Initialize Data
+  useEffect(() => {
+    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (savedData) {
+      setSubjects(JSON.parse(savedData));
+    } else {
+      // Create Default DSA Subject
+      const dsaProblems: Problem[] = Array.from({ length: DEFAULT_DSA_PROBLEMS }, (_, i) => ({
+        id: uuidv4(),
+        title: `DSA Problem ${i + 1}`,
+        isSolved: false,
+        topic: 'General'
+      }));
+
+      const defaultSubjects: Subject[] = [
+        {
+          id: uuidv4(),
+          title: 'DSA',
+          description: 'Data Structures and Algorithms Interview Prep',
+          problems: dsaProblems,
+          createdAt: Date.now()
+        },
+        {
+          id: uuidv4(),
+          title: 'System Design (HLD)',
+          description: 'High Level Design Concepts',
+          problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `HLD Topic ${i + 1}`, isSolved: false })),
+          createdAt: Date.now()
+        },
+        {
+          id: uuidv4(),
+          title: 'LLD',
+          description: 'Low Level Design & OOP',
+          problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `LLD Pattern ${i + 1}`, isSolved: false })),
+          createdAt: Date.now()
+        }
+      ];
+      setSubjects(defaultSubjects);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(defaultSubjects));
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // Persist Data on Change
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(subjects));
+    }
+  }, [subjects, isLoaded]);
+
+  const activeSubject = useMemo(() => 
+    subjects.find(s => s.id === selectedSubjectId), 
+    [subjects, selectedSubjectId]
+  );
+
+  const toggleProblem = (subjectId: string, problemId: string) => {
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.map(p => 
+          p.id === problemId ? { ...p, isSolved: !p.isSolved } : p
+        )
+      };
+    }));
+  };
+
+  const deleteSubject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('Are you sure you want to delete this subject?')) {
+      setSubjects(prev => prev.filter(s => s.id !== id));
+      if (selectedSubjectId === id) setSelectedSubjectId(null);
+    }
+  };
+
+  const createSubject = () => {
+    const title = prompt("Enter Subject Name (e.g., 'React Internals'):");
+    if (!title) return;
+    
+    const countStr = prompt("How many problems to track initially?", "50");
+    const count = parseInt(countStr || "50", 10) || 50;
+
+    const newSubject: Subject = {
+      id: uuidv4(),
+      title,
+      description: 'New subject tracker',
+      problems: Array.from({ length: count }, (_, i) => ({
+        id: uuidv4(),
+        title: `${title} Item ${i + 1}`,
+        isSolved: false
+      })),
+      createdAt: Date.now()
+    };
+    setSubjects(prev => [...prev, newSubject]);
+  };
+
+  const getProgressStats = (problems: Problem[]) => {
+    const solved = problems.filter(p => p.isSolved).length;
+    const total = problems.length;
+    const percentage = total === 0 ? 0 : Math.round((solved / total) * 100);
+    return { solved, total, percentage };
+  };
+
+  if (!isLoaded) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-emerald-500">Loading Tracker...</div>;
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-emerald-500/30">
+      
+      {/* Header */}
+      <header className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setSelectedSubjectId(null)}>
+            <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-white" />
+            </div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
+              DevTracker
+            </h1>
+          </div>
+          <div className="flex items-center gap-4 text-sm text-zinc-400">
+             <span>Prepare. Track. Succeed.</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        
+        {/* Dashboard View */}
+        {!activeSubject && (
+          <div className="space-y-8 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-white">Your Subjects</h2>
+              <button 
+                onClick={createSubject}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg transition-all shadow-lg hover:shadow-emerald-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Subject</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {subjects.map(subject => {
+                const { solved, total, percentage } = getProgressStats(subject.problems);
+                return (
+                  <div 
+                    key={subject.id}
+                    onClick={() => setSelectedSubjectId(subject.id)}
+                    className="group relative bg-zinc-900 border border-zinc-800 rounded-2xl p-6 cursor-pointer hover:border-emerald-500/50 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden"
+                  >
+                    <div className="absolute top-0 left-0 w-full h-1 bg-zinc-800">
+                      <div 
+                        className="h-full bg-emerald-500 transition-all duration-1000 ease-out" 
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">{subject.title}</h3>
+                        <p className="text-sm text-zinc-500 mt-1">{subject.description}</p>
+                      </div>
+                      <button 
+                        onClick={(e) => deleteSubject(subject.id, e)}
+                        className="p-2 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-full transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-end justify-between mt-8">
+                      <div>
+                        <span className="text-3xl font-bold text-white">{percentage}%</span>
+                        <span className="text-zinc-500 text-sm ml-2">Complete</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium text-zinc-300">{solved} / {total}</div>
+                        <div className="text-xs text-zinc-600 uppercase tracking-wider mt-1">Problems</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* Add New Card Placeholder */}
+              <button 
+                onClick={createSubject}
+                className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-zinc-800 rounded-2xl text-zinc-600 hover:text-emerald-500 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all duration-300 h-full min-h-[200px]"
+              >
+                <Plus className="w-10 h-10 mb-2" />
+                <span className="font-medium">Add Subject</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Detail View */}
+        {activeSubject && (
+          <div className="animate-fade-in-up">
+            {/* Nav & Header */}
+            <div className="flex items-center gap-4 mb-8">
+              <button 
+                onClick={() => setSelectedSubjectId(null)}
+                className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </button>
+              <div className="flex-1">
+                <h2 className="text-3xl font-bold text-white">{activeSubject.title}</h2>
+                <div className="flex items-center gap-4 mt-2">
+                   <div className="h-2 w-48 bg-zinc-800 rounded-full overflow-hidden">
+                     <div 
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${getProgressStats(activeSubject.problems).percentage}%` }}
+                     />
+                   </div>
+                   <span className="text-emerald-400 font-mono text-sm">
+                     {getProgressStats(activeSubject.problems).percentage}% Done
+                   </span>
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => setIsAiOpen(true)}
+                className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform hover:scale-105"
+              >
+                <BrainCircuit className="w-5 h-5" />
+                <span className="font-semibold">Ask AI Tutor</span>
+              </button>
+            </div>
+
+            {/* Grid Visualization */}
+            <div className="mb-10">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-medium text-zinc-300 flex items-center gap-2">
+                   <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                   Progress Grid
+                </h3>
+                <span className="text-xs text-zinc-500">Click a box to toggle status</span>
+              </div>
+              <ProblemGrid 
+                problems={activeSubject.problems} 
+                onToggle={(pid) => toggleProblem(activeSubject.id, pid)} 
+              />
+              <div className="flex gap-4 mt-3 text-xs text-zinc-500">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-zinc-800 rounded-sm"></div>
+                  <span>Unsolved</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-emerald-500 rounded-sm"></div>
+                  <span>Solved</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Problem List */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+              <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex justify-between items-center">
+                 <h3 className="font-semibold text-white">Problem List</h3>
+                 <span className="text-xs text-zinc-500 font-mono">{activeSubject.problems.length} Items</span>
+              </div>
+              <div className="divide-y divide-zinc-800 max-h-[600px] overflow-y-auto">
+                {activeSubject.problems.map((problem, index) => (
+                  <div 
+                    key={problem.id}
+                    onClick={() => toggleProblem(activeSubject.id, problem.id)}
+                    className={`
+                      group flex items-center gap-4 p-4 hover:bg-zinc-800/50 cursor-pointer transition-colors
+                      ${problem.isSolved ? 'bg-emerald-900/10' : ''}
+                    `}
+                  >
+                    <div className="flex-shrink-0 w-8 text-center text-sm font-mono text-zinc-600 group-hover:text-zinc-400">
+                      {index + 1}
+                    </div>
+                    <div className="flex-shrink-0">
+                      {problem.isSolved ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-zinc-600 group-hover:text-zinc-400" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className={`text-sm font-medium transition-colors ${problem.isSolved ? 'text-zinc-400 line-through' : 'text-zinc-200'}`}>
+                        {problem.title}
+                      </div>
+                    </div>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400">
+                        {problem.isSolved ? 'Mark Unsolved' : 'Mark Solved'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* AI Assistant Sidebar */}
+      <AIAssistant 
+        isOpen={isAiOpen} 
+        onClose={() => setIsAiOpen(false)} 
+        subjectTitle={activeSubject?.title || 'General'}
+      />
+
+    </div>
+  );
+};
+
+export default App;
