@@ -5,7 +5,7 @@ import ProblemGrid from './components/ProblemGrid';
 import AIAssistant from './components/AIAssistant';
 import { db } from './services/database';
 // Use react-markdown only in AIAssistant to keep App clean, import icons
-import { Trash2, Plus, ArrowLeft, BrainCircuit, CheckCircle2, Circle, Calendar, Repeat, BookOpen } from 'lucide-react';
+import { Trash2, Plus, ArrowLeft, BrainCircuit, CheckCircle2, Circle, Calendar, Repeat, BookOpen, Edit2, FileText, StickyNote, X } from 'lucide-react';
 
 const DEFAULT_DSA_PROBLEMS = 250;
 
@@ -14,6 +14,10 @@ const App: React.FC = () => {
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [notesModalProblem, setNotesModalProblem] = useState<{ subjectId: string; problem: Problem } | null>(null);
+  const [notesContent, setNotesContent] = useState('');
 
   // Initialize Database and Load Data
   useEffect(() => {
@@ -221,6 +225,80 @@ const App: React.FC = () => {
 
     await db.createSubject(newSubject);
     setSubjects(prev => [...prev, newSubject]);
+  };
+
+  const updateProblemTitle = async (subjectId: string, problemId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.map(p => {
+          if (p.id === problemId) {
+            const updated = { ...p, title: newTitle };
+            db.updateProblem(updated);
+            return updated;
+          }
+          return p;
+        })
+      };
+    }));
+  };
+
+  const updateProblemNotes = async (subjectId: string, problemId: string, notes: string) => {
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.map(p => {
+          if (p.id === problemId) {
+            const updated = { ...p, notes };
+            db.updateProblem(updated);
+            return updated;
+          }
+          return p;
+        })
+      };
+    }));
+  };
+
+  const handleStartEdit = (problem: Problem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingProblemId(problem.id);
+    setEditingTitle(problem.title);
+  };
+
+  const handleSaveEdit = async (subjectId: string, problemId: string) => {
+    if (editingTitle.trim()) {
+      await updateProblemTitle(subjectId, problemId, editingTitle);
+    }
+    setEditingProblemId(null);
+    setEditingTitle('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingProblemId(null);
+    setEditingTitle('');
+  };
+
+  const openNotesModal = (subjectId: string, problem: Problem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNotesModalProblem({ subjectId, problem });
+    setNotesContent(problem.notes || '');
+  };
+
+  const saveNotes = async () => {
+    if (notesModalProblem) {
+      await updateProblemNotes(notesModalProblem.subjectId, notesModalProblem.problem.id, notesContent);
+      setNotesModalProblem(null);
+      setNotesContent('');
+    }
+  };
+
+  const closeNotesModal = () => {
+    setNotesModalProblem(null);
+    setNotesContent('');
   };
 
   const getProgressStats = (problems: Problem[]) => {
@@ -438,7 +516,7 @@ const App: React.FC = () => {
                 {activeSubject.problems.map((problem, index) => (
                   <div
                     key={problem.id}
-                    onClick={() => toggleProblem(activeSubject.id, problem.id)}
+                    onClick={() => editingProblemId !== problem.id && toggleProblem(activeSubject.id, problem.id)}
                     className={`
                       group flex items-center gap-4 p-4 hover:bg-zinc-800/50 cursor-pointer transition-colors
                       ${problem.isSolved ? 'bg-emerald-900/10' : ''}
@@ -454,12 +532,51 @@ const App: React.FC = () => {
                         <Circle className="w-5 h-5 text-zinc-600 group-hover:text-zinc-400" />
                       )}
                     </div>
-                    <div className="flex-1">
-                      <div className={`text-sm font-medium transition-colors ${problem.isSolved ? 'text-zinc-400 line-through' : 'text-zinc-200'}`}>
-                        {problem.title}
-                      </div>
+                    <div className="flex-1 flex items-center gap-2">
+                      {editingProblemId === problem.id ? (
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onBlur={() => handleSaveEdit(activeSubject.id, problem.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(activeSubject.id, problem.id);
+                            if (e.key === 'Escape') handleCancelEdit();
+                          }}
+                          className="flex-1 bg-zinc-800 text-zinc-200 px-2 py-1 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <>
+                          <div className={`text-sm font-medium transition-colors flex-1 ${problem.isSolved ? 'text-zinc-400 line-through' : 'text-zinc-200'}`}>
+                            {problem.title}
+                          </div>
+                          {problem.notes && (
+                            <span title="Has notes">
+                              <StickyNote className="w-4 h-4 text-amber-500/70" />
+                            </span>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                      <button
+                        onClick={(e) => handleStartEdit(problem, e)}
+                        className="p-1.5 text-zinc-600 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
+                        title="Edit title (Double-click)"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={(e) => openNotesModal(activeSubject.id, problem, e)}
+                        className="p-1.5 text-zinc-600 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-colors"
+                        title="Add/edit notes"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
+
                       <button
                         onClick={(e) => markForRevision(activeSubject.id, problem.id, e)}
                         className={`p-1.5 rounded-lg transition-colors ${problem.isForRevision
@@ -482,6 +599,64 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Notes Modal */}
+      {notesModalProblem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full shadow-2xl animate-fade-in-up">
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-400" />
+                  Notes
+                </h3>
+                <p className="text-sm text-zinc-500 mt-1">{notesModalProblem.problem.title}</p>
+              </div>
+              <button
+                onClick={closeNotesModal}
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <textarea
+                value={notesContent}
+                onChange={(e) => setNotesContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') closeNotesModal();
+                  if (e.ctrlKey && e.key === 's') {
+                    e.preventDefault();
+                    saveNotes();
+                  }
+                }}
+                placeholder="Add notes, links, or study references here..."
+                className="w-full h-64 bg-zinc-800/50 text-zinc-200 border border-zinc-700 rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-zinc-600"
+                autoFocus
+              />
+              <div className="flex items-center justify-between mt-4">
+                <span className="text-xs text-zinc-600">
+                  <kbd className="px-2 py-1 bg-zinc-800 rounded text-zinc-400">Ctrl+S</kbd> to save • <kbd className="px-2 py-1 bg-zinc-800 rounded text-zinc-400">Esc</kbd> to close
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={closeNotesModal}
+                    className="px-4 py-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveNotes}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors"
+                  >
+                    Save Notes
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Assistant Sidebar */}
       <AIAssistant

@@ -8,6 +8,7 @@ export interface Problem {
     isForRevision?: boolean;
     revisionInterval?: number;
     nextRevisionDate?: number;
+    notes?: string;
 }
 
 export interface Subject {

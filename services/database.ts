@@ -2,7 +2,7 @@ import initSqlJs, { Database } from 'sql.js';
 import type { Subject, Problem } from '../types';
 
 const DB_NAME = 'devtracker_db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2; // Incremented for notes column migration
 
 class DatabaseService {
     private db: Database | null = null;
@@ -20,6 +20,7 @@ class DatabaseService {
 
             if (savedDb) {
                 this.db = new this.sqlJs.Database(savedDb);
+                await this.migrateSchema(); // Check and apply schema migrations
             } else {
                 // Create new database
                 this.db = new this.sqlJs.Database();
@@ -62,6 +63,7 @@ class DatabaseService {
         isForRevision INTEGER DEFAULT 0,
         revisionInterval INTEGER,
         nextRevisionDate INTEGER,
+        notes TEXT,
         FOREIGN KEY (subjectId) REFERENCES subjects(id) ON DELETE CASCADE
       )
     `);
@@ -91,6 +93,24 @@ class DatabaseService {
                 console.log('✅ Migration from localStorage completed');
             } catch (error) {
                 console.error('❌ Migration failed:', error);
+            }
+        }
+    }
+
+    private async migrateSchema(): Promise<void> {
+        if (!this.db) throw new Error('Database not initialized');
+
+        // Check if notes column exists in problems table
+        const result = this.db.exec("PRAGMA table_info(problems)");
+
+        if (result.length > 0) {
+            const columns = result[0].values.map(row => row[1] as string);
+
+            if (!columns.includes('notes')) {
+                console.log('📝 Adding notes column to problems table...');
+                this.db.run('ALTER TABLE problems ADD COLUMN notes TEXT');
+                await this.saveToIndexedDB();
+                console.log('✅ Schema migration completed');
             }
         }
     }
@@ -145,7 +165,8 @@ class DatabaseService {
                 link: row.link as string | undefined,
                 isForRevision: Boolean(row.isForRevision),
                 revisionInterval: row.revisionInterval as number | undefined,
-                nextRevisionDate: row.nextRevisionDate as number | undefined
+                nextRevisionDate: row.nextRevisionDate as number | undefined,
+                notes: row.notes as string | undefined
             });
         }
         stmt.free();
@@ -174,8 +195,8 @@ class DatabaseService {
         if (!this.db) throw new Error('Database not initialized');
 
         this.db.run(
-            `INSERT INTO problems (id, subjectId, title, isSolved, difficulty, topic, link, isForRevision, revisionInterval, nextRevisionDate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO problems (id, subjectId, title, isSolved, difficulty, topic, link, isForRevision, revisionInterval, nextRevisionDate, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 problem.id,
                 subjectId,
@@ -186,7 +207,8 @@ class DatabaseService {
                 problem.link || null,
                 problem.isForRevision ? 1 : 0,
                 problem.revisionInterval || null,
-                problem.nextRevisionDate || null
+                problem.nextRevisionDate || null,
+                problem.notes || null
             ]
         );
 
@@ -199,7 +221,7 @@ class DatabaseService {
         this.db.run(
             `UPDATE problems 
        SET title = ?, isSolved = ?, difficulty = ?, topic = ?, link = ?, 
-           isForRevision = ?, revisionInterval = ?, nextRevisionDate = ?
+           isForRevision = ?, revisionInterval = ?, nextRevisionDate = ?, notes = ?
        WHERE id = ?`,
             [
                 problem.title,
@@ -210,6 +232,7 @@ class DatabaseService {
                 problem.isForRevision ? 1 : 0,
                 problem.revisionInterval || null,
                 problem.nextRevisionDate || null,
+                problem.notes || null,
                 problem.id
             ]
         );
