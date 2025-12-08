@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Subject, Problem } from './types';
+import type { Subject, Problem } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import ProblemGrid from './components/ProblemGrid';
 import AIAssistant from './components/AIAssistant';
+import { db } from './services/database';
 // Use react-markdown only in AIAssistant to keep App clean, import icons
-import { Trash2, Plus, ArrowLeft, BrainCircuit, Github, CheckCircle2, Circle } from 'lucide-react';
-
-const LOCAL_STORAGE_KEY = 'devtracker_data_v1';
+import { Trash2, Plus, ArrowLeft, BrainCircuit, CheckCircle2, Circle, Calendar, Repeat, BookOpen } from 'lucide-react';
 
 const DEFAULT_DSA_PROBLEMS = 250;
 
@@ -16,85 +15,195 @@ const App: React.FC = () => {
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Initialize Data
+  // Initialize Database and Load Data
   useEffect(() => {
-    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (savedData) {
-      setSubjects(JSON.parse(savedData));
-    } else {
-      // Create Default DSA Subject
-      const dsaProblems: Problem[] = Array.from({ length: DEFAULT_DSA_PROBLEMS }, (_, i) => ({
-        id: uuidv4(),
-        title: `DSA Problem ${i + 1}`,
-        isSolved: false,
-        topic: 'General'
-      }));
+    const initializeApp = async () => {
+      try {
+        await db.initialize();
+        const loadedSubjects = await db.getAllSubjects();
 
-      const defaultSubjects: Subject[] = [
-        {
-          id: uuidv4(),
-          title: 'DSA',
-          description: 'Data Structures and Algorithms Interview Prep',
-          problems: dsaProblems,
-          createdAt: Date.now()
-        },
-        {
-          id: uuidv4(),
-          title: 'System Design (HLD)',
-          description: 'High Level Design Concepts',
-          problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `HLD Topic ${i + 1}`, isSolved: false })),
-          createdAt: Date.now()
-        },
-        {
-          id: uuidv4(),
-          title: 'LLD',
-          description: 'Low Level Design & OOP',
-          problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `LLD Pattern ${i + 1}`, isSolved: false })),
-          createdAt: Date.now()
+        if (loadedSubjects.length === 0) {
+          // Create Default DSA Subject
+          const dsaProblems: Problem[] = Array.from({ length: DEFAULT_DSA_PROBLEMS }, (_, i) => ({
+            id: uuidv4(),
+            title: `DSA Problem ${i + 1}`,
+            isSolved: false,
+            topic: 'General'
+          }));
+
+          const defaultSubjects: Subject[] = [
+            {
+              id: uuidv4(),
+              title: 'DSA',
+              description: 'Data Structures and Algorithms Interview Prep',
+              problems: dsaProblems,
+              createdAt: Date.now()
+            },
+            {
+              id: uuidv4(),
+              title: 'System Design (HLD)',
+              description: 'High Level Design Concepts',
+              problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `HLD Topic ${i + 1}`, isSolved: false })),
+              createdAt: Date.now()
+            },
+            {
+              id: uuidv4(),
+              title: 'LLD',
+              description: 'Low Level Design & OOP',
+              problems: Array.from({ length: 20 }, (_, i) => ({ id: uuidv4(), title: `LLD Pattern ${i + 1}`, isSolved: false })),
+              createdAt: Date.now()
+            }
+          ];
+
+          for (const subject of defaultSubjects) {
+            await db.createSubject(subject);
+          }
+
+          setSubjects(defaultSubjects);
+        } else {
+          setSubjects(loadedSubjects);
         }
-      ];
-      setSubjects(defaultSubjects);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(defaultSubjects));
-    }
-    setIsLoaded(true);
+
+        setIsLoaded(true);
+      } catch (error) {
+        console.error('Failed to initialize app:', error);
+        setIsLoaded(true);
+      }
+    };
+
+    initializeApp();
   }, []);
 
-  // Persist Data on Change
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(subjects));
-    }
-  }, [subjects, isLoaded]);
-
-  const activeSubject = useMemo(() => 
-    subjects.find(s => s.id === selectedSubjectId), 
+  const activeSubject = useMemo(() =>
+    subjects.find(s => s.id === selectedSubjectId),
     [subjects, selectedSubjectId]
   );
 
-  const toggleProblem = (subjectId: string, problemId: string) => {
+  const toggleProblem = async (subjectId: string, problemId: string) => {
     setSubjects(prev => prev.map(sub => {
       if (sub.id !== subjectId) return sub;
       return {
         ...sub,
-        problems: sub.problems.map(p => 
-          p.id === problemId ? { ...p, isSolved: !p.isSolved } : p
-        )
+        problems: sub.problems.map(p => {
+          if (p.id === problemId) {
+            const updated = { ...p, isSolved: !p.isSolved };
+            db.updateProblem(updated); // Persist to database
+            return updated;
+          }
+          return p;
+        })
       };
     }));
   };
 
-  const deleteSubject = (id: string, e: React.MouseEvent) => {
+
+  const markForRevision = async (subjectId: string, problemId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.map(p => {
+          if (p.id !== problemId) return p;
+
+          let updated: Problem;
+          // Toggle revision
+          if (p.isForRevision) {
+            const { isForRevision, revisionInterval, nextRevisionDate, ...rest } = p;
+            updated = rest as Problem;
+          } else {
+            // Start revision schedule (1 day)
+            const nextDate = new Date();
+            nextDate.setDate(nextDate.getDate() + 1);
+            nextDate.setHours(0, 0, 0, 0);
+
+            updated = {
+              ...p,
+              isForRevision: true,
+              revisionInterval: 1,
+              nextRevisionDate: nextDate.getTime()
+            };
+          }
+
+          db.updateProblem(updated); // Persist to database
+          return updated;
+        })
+      };
+    }));
+  };
+
+  const completeRevision = async (subjectId: string, problemId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSubjects(prev => prev.map(sub => {
+      if (sub.id !== subjectId) return sub;
+      return {
+        ...sub,
+        problems: sub.problems.map(p => {
+          if (p.id !== problemId) return p;
+
+          if (!p.revisionInterval) return p;
+
+          let updated: Problem;
+          let newInterval: number | undefined;
+
+          if (p.revisionInterval === 1) newInterval = 4;
+          else if (p.revisionInterval === 4) newInterval = 7;
+          else {
+            // Finished cycle
+            const { isForRevision, revisionInterval, nextRevisionDate, ...rest } = p;
+            updated = rest as Problem;
+            db.updateProblem(updated); // Persist to database
+            return updated;
+          }
+
+          const nextDate = new Date();
+          nextDate.setDate(nextDate.getDate() + newInterval);
+          nextDate.setHours(0, 0, 0, 0);
+
+          updated = {
+            ...p,
+            revisionInterval: newInterval,
+            nextRevisionDate: nextDate.getTime()
+          };
+
+          db.updateProblem(updated); // Persist to database
+          return updated;
+        })
+      };
+    }));
+  };
+
+  const dueRevisions = useMemo(() => {
+    const today = new Date().setHours(0, 0, 0, 0) + 10 * 86400000;
+    const due: { subject: Subject; problem: Problem }[] = [];
+
+    subjects.forEach(subject => {
+      subject.problems.forEach(problem => {
+        if (problem.isForRevision) {
+          console.log('dbg:', today, problem.nextRevisionDate, problem.nextRevisionDate <= today);
+        }
+        if (problem.isForRevision && problem.nextRevisionDate && problem.nextRevisionDate <= today) {
+          console.log('inside');
+          due.push({ subject, problem });
+        }
+      });
+    });
+    return due;
+  }, [subjects]);
+
+  const deleteSubject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Are you sure you want to delete this subject?')) {
+      await db.deleteSubject(id);
       setSubjects(prev => prev.filter(s => s.id !== id));
       if (selectedSubjectId === id) setSelectedSubjectId(null);
     }
   };
 
-  const createSubject = () => {
+  const createSubject = async () => {
     const title = prompt("Enter Subject Name (e.g., 'React Internals'):");
     if (!title) return;
-    
+
     const countStr = prompt("How many problems to track initially?", "50");
     const count = parseInt(countStr || "50", 10) || 50;
 
@@ -109,6 +218,8 @@ const App: React.FC = () => {
       })),
       createdAt: Date.now()
     };
+
+    await db.createSubject(newSubject);
     setSubjects(prev => [...prev, newSubject]);
   };
 
@@ -123,7 +234,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-emerald-500/30">
-      
+
       {/* Header */}
       <header className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -136,19 +247,19 @@ const App: React.FC = () => {
             </h1>
           </div>
           <div className="flex items-center gap-4 text-sm text-zinc-400">
-             <span>Prepare. Track. Succeed.</span>
+            <span>Prepare. Track. Succeed.</span>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        
+
         {/* Dashboard View */}
         {!activeSubject && (
           <div className="space-y-8 animate-fade-in">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-semibold text-white">Your Subjects</h2>
-              <button 
+              <button
                 onClick={createSubject}
                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg transition-all shadow-lg hover:shadow-emerald-500/20"
               >
@@ -157,28 +268,73 @@ const App: React.FC = () => {
               </button>
             </div>
 
+            {/* <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-white">Your Subjects</h2>
+              <button
+                onClick={createSubject}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg transition-all shadow-lg hover:shadow-emerald-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Subject</span>
+              </button>
+            </div> */}
+
+            {/* Today's Revisions Section */}
+            {dueRevisions.length > 0 && (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500">
+                    <Repeat className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Revision Required</h3>
+                    <p className="text-sm text-zinc-500">Spaced repetition for long-term memory</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  {dueRevisions.map(({ subject, problem }) => (
+                    <div key={problem.id} className="flex items-center justify-between bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50 hover:border-amber-500/30 transition-colors">
+                      <div>
+                        <p className="font-medium text-zinc-200">{problem.title}</p>
+                        <p className="text-xs text-zinc-500">{subject.title} • {problem.revisionInterval} day interval</p>
+                      </div>
+                      <button
+                        onClick={(e) => completeRevision(subject.id, problem.id, e)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600 text-amber-500 hover:text-white rounded-lg text-sm font-medium transition-all"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        Review
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {subjects.map(subject => {
                 const { solved, total, percentage } = getProgressStats(subject.problems);
                 return (
-                  <div 
+                  <div
                     key={subject.id}
                     onClick={() => setSelectedSubjectId(subject.id)}
                     className="group relative bg-zinc-900 border border-zinc-800 rounded-2xl p-6 cursor-pointer hover:border-emerald-500/50 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden"
                   >
                     <div className="absolute top-0 left-0 w-full h-1 bg-zinc-800">
-                      <div 
-                        className="h-full bg-emerald-500 transition-all duration-1000 ease-out" 
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-1000 ease-out"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>
-                    
+
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">{subject.title}</h3>
                         <p className="text-sm text-zinc-500 mt-1">{subject.description}</p>
                       </div>
-                      <button 
+                      <button
                         onClick={(e) => deleteSubject(subject.id, e)}
                         className="p-2 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-full transition-colors"
                       >
@@ -199,9 +355,9 @@ const App: React.FC = () => {
                   </div>
                 );
               })}
-              
+
               {/* Add New Card Placeholder */}
-              <button 
+              <button
                 onClick={createSubject}
                 className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-zinc-800 rounded-2xl text-zinc-600 hover:text-emerald-500 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all duration-300 h-full min-h-[200px]"
               >
@@ -217,7 +373,7 @@ const App: React.FC = () => {
           <div className="animate-fade-in-up">
             {/* Nav & Header */}
             <div className="flex items-center gap-4 mb-8">
-              <button 
+              <button
                 onClick={() => setSelectedSubjectId(null)}
                 className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
               >
@@ -226,19 +382,19 @@ const App: React.FC = () => {
               <div className="flex-1">
                 <h2 className="text-3xl font-bold text-white">{activeSubject.title}</h2>
                 <div className="flex items-center gap-4 mt-2">
-                   <div className="h-2 w-48 bg-zinc-800 rounded-full overflow-hidden">
-                     <div 
-                        className="h-full bg-emerald-500 transition-all duration-500"
-                        style={{ width: `${getProgressStats(activeSubject.problems).percentage}%` }}
-                     />
-                   </div>
-                   <span className="text-emerald-400 font-mono text-sm">
-                     {getProgressStats(activeSubject.problems).percentage}% Done
-                   </span>
+                  <div className="h-2 w-48 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all duration-500"
+                      style={{ width: `${getProgressStats(activeSubject.problems).percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-emerald-400 font-mono text-sm">
+                    {getProgressStats(activeSubject.problems).percentage}% Done
+                  </span>
                 </div>
               </div>
-              
-              <button 
+
+              <button
                 onClick={() => setIsAiOpen(true)}
                 className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform hover:scale-105"
               >
@@ -251,14 +407,14 @@ const App: React.FC = () => {
             <div className="mb-10">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-medium text-zinc-300 flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                   Progress Grid
+                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                  Progress Grid
                 </h3>
                 <span className="text-xs text-zinc-500">Click a box to toggle status</span>
               </div>
-              <ProblemGrid 
-                problems={activeSubject.problems} 
-                onToggle={(pid) => toggleProblem(activeSubject.id, pid)} 
+              <ProblemGrid
+                problems={activeSubject.problems}
+                onToggle={(pid) => toggleProblem(activeSubject.id, pid)}
               />
               <div className="flex gap-4 mt-3 text-xs text-zinc-500">
                 <div className="flex items-center gap-2">
@@ -275,12 +431,12 @@ const App: React.FC = () => {
             {/* Problem List */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
               <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex justify-between items-center">
-                 <h3 className="font-semibold text-white">Problem List</h3>
-                 <span className="text-xs text-zinc-500 font-mono">{activeSubject.problems.length} Items</span>
+                <h3 className="font-semibold text-white">Problem List</h3>
+                <span className="text-xs text-zinc-500 font-mono">{activeSubject.problems.length} Items</span>
               </div>
               <div className="divide-y divide-zinc-800 max-h-[600px] overflow-y-auto">
                 {activeSubject.problems.map((problem, index) => (
-                  <div 
+                  <div
                     key={problem.id}
                     onClick={() => toggleProblem(activeSubject.id, problem.id)}
                     className={`
@@ -303,7 +459,18 @@ const App: React.FC = () => {
                         {problem.title}
                       </div>
                     </div>
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                      <button
+                        onClick={(e) => markForRevision(activeSubject.id, problem.id, e)}
+                        className={`p-1.5 rounded-lg transition-colors ${problem.isForRevision
+                          ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20'
+                          : 'text-zinc-600 hover:text-amber-500 hover:bg-zinc-800'
+                          }`}
+                        title={problem.isForRevision ? `Next review: ${new Date(problem.nextRevisionDate!).toLocaleDateString()}` : "Mark for spaced repetition"}
+                      >
+                        <Repeat className="w-4 h-4" />
+                      </button>
+
                       <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400">
                         {problem.isSolved ? 'Mark Unsolved' : 'Mark Solved'}
                       </span>
@@ -317,9 +484,9 @@ const App: React.FC = () => {
       </main>
 
       {/* AI Assistant Sidebar */}
-      <AIAssistant 
-        isOpen={isAiOpen} 
-        onClose={() => setIsAiOpen(false)} 
+      <AIAssistant
+        isOpen={isAiOpen}
+        onClose={() => setIsAiOpen(false)}
         subjectTitle={activeSubject?.title || 'General'}
       />
 
