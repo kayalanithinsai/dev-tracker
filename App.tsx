@@ -170,7 +170,7 @@ const App: React.FC = () => {
   };
 
   const dueRevisions = useMemo(() => {
-    const today = new Date().setHours(0, 0, 0, 0) + 10 * 86400000;
+    const today = new Date().setHours(0, 0, 0, 0);
     const due: { subject: Subject; problem: Problem }[] = [];
 
     subjects.forEach(subject => {
