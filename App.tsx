@@ -488,9 +488,12 @@ const App: React.FC = () => {
                       style={{ width: `${getProgressStats(activeSubject.problems).percentage}%` }}
                     />
                   </div>
-                  <span className="text-emerald-400 font-mono text-sm">
-                    {getProgressStats(activeSubject.problems).percentage}% Done
+                  <span className='text-emerald-400 font-mono text-sm'>
+                    {getProgressStats(activeSubject.problems).solved}/{getProgressStats(activeSubject.problems).total} problems
                   </span>
+                  {/* <span className="text-emerald-400 font-mono text-sm">
+                    {getProgressStats(activeSubject.problems).percentage}% Done
+                  </span> */}
                 </div>
               </div>
 
