@@ -144,6 +144,7 @@ const App: React.FC = () => {
 
           if (p.revisionInterval === 1) newInterval = 4;
           else if (p.revisionInterval === 4) newInterval = 7;
+          else if (p.revisionInterval === 7) newInterval = 3650;
           else {
             // Finished cycle
             const { isForRevision, revisionInterval, nextRevisionDate, ...rest } = p;
